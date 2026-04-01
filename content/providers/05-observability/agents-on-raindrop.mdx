@@ -1,0 +1,181 @@
+---
+title: Agents on Raindrop
+description: Monitor, debug, and improve your AI agents with Raindrop
+---
+
+# Agents on Raindrop
+
+[Raindrop](https://raindrop.ai) is the monitoring platform for AI agents. Similar to how Sentry tracks errors in web apps, Raindrop discovers silent agent failures in production. Raindrop integrates with the AI SDK to provide:
+
+- [Trajectory visualization](https://raindrop.ai/docs/platform/trajectories.md) of agent execution paths, tool invocations, and error responses
+- Automatic detection of common failure patterns like memory loss and user dissatisfaction
+- Natural language [search](https://raindrop.ai/docs/platform/search.md) across production interactions
+- Custom [signal](https://raindrop.ai/docs/platform/signals.md) definition and tracking
+- [A/B testing](https://raindrop.ai/docs/platform/experiments.md) for agent validation
+
+## Setup
+
+The `@raindrop-ai/ai-sdk` package provides automatic instrumentation for the AI SDK, capturing events and traces with zero configuration at each call site. No OpenTelemetry setup is required.
+
+### 1. Install the Raindrop SDK
+
+<Tabs items={['pnpm', 'npm', 'yarn']}>
+  <Tab>
+    <Snippet text="pnpm add @raindrop-ai/ai-sdk" dark />
+  </Tab>
+  <Tab>
+    <Snippet text="npm install @raindrop-ai/ai-sdk" dark />
+  </Tab>
+  <Tab>
+    <Snippet text="yarn add @raindrop-ai/ai-sdk" dark />
+  </Tab>
+</Tabs>
+
+### 2. Configure Environment Variables
+
+Set your Raindrop write key in your environment:
+
+```bash filename=".env"
+RAINDROP_WRITE_KEY="your-write-key"
+```
+
+You can obtain your write key from the [Raindrop dashboard](https://raindrop.ai).
+
+### 3. Wrap AI SDK Functions
+
+Initialize the Raindrop client and wrap your AI SDK imports:
+
+```ts
+import { createRaindropAISDK } from '@raindrop-ai/ai-sdk';
+import * as ai from 'ai';
+import { anthropic } from '@ai-sdk/anthropic';
+
+const raindrop = createRaindropAISDK({
+  writeKey: process.env.RAINDROP_WRITE_KEY!,
+});
+
+const { generateText, streamText } = raindrop.wrap(ai, {
+  context: { userId: 'user_123', eventName: 'chat' },
+});
+
+const result = await generateText({
+  model: anthropic('claude-sonnet-4-5-20250514'),
+  prompt: 'Write a short story about a cat.',
+});
+```
+
+Telemetry activates automatically without per-call configuration. The SDK instruments `generateText`, `streamText`, `generateObject`, and `streamObject`.
+
+## Native Telemetry Integration (AI SDK v7+)
+
+AI SDK v7 introduced pluggable telemetry. You can enable native integration by setting `nativeTelemetry: true` in wrap options:
+
+```ts
+const { generateText } = raindrop.wrap(ai, {
+  nativeTelemetry: true,
+  context: { userId: 'user_123', eventName: 'chat' },
+});
+```
+
+Alternatively, register directly using the AI SDK's telemetry integration registry:
+
+```ts
+import { registerTelemetryIntegration } from 'ai';
+
+registerTelemetryIntegration(raindrop.telemetryIntegration());
+```
+
+## Runtime Environments
+
+Raindrop supports multiple runtime environments:
+
+- **Node.js**: Import from `@raindrop-ai/ai-sdk` (uses `AsyncLocalStorage`)
+- **Browsers/Edge**: Import from `@raindrop-ai/ai-sdk/browser` (no `async_hooks` required)
+- **Cloudflare Workers**: Import from `@raindrop-ai/ai-sdk/workers` (requires `nodejs_compat`)
+
+## Configuration
+
+### Per-Call Context Override
+
+Override default context on individual calls using `eventMetadata()`:
+
+```ts
+import { eventMetadata } from '@raindrop-ai/ai-sdk';
+
+const result = await generateText({
+  model: anthropic('claude-sonnet-4-5-20250514'),
+  prompt: 'Help me debug this issue.',
+  metadata: eventMetadata({
+    userId: 'specific-user',
+    convoId: 'convo-123',
+    eventName: 'support-chat',
+    properties: { source: 'web' },
+  }),
+});
+```
+
+### Self Diagnostics
+
+Enable agents to report capability gaps, missing context, tool failures, and task failures back to your team:
+
+```ts
+const { generateText } = raindrop.wrap(ai, {
+  context: { userId: 'user_123', eventName: 'chat' },
+  selfDiagnostics: {
+    enabled: true,
+  },
+});
+```
+
+### User Identification
+
+Associate traits with users for tracking:
+
+```ts
+await raindrop.users.identify({
+  userId: 'user_123',
+  traits: { email: 'user@example.com', plan: 'paid' },
+});
+```
+
+### Feedback and Signals
+
+Track user feedback tied to specific events:
+
+```ts
+await raindrop.signals.track({
+  eventId,
+  name: 'thumbs_down',
+  comment: 'Answer was incorrect',
+});
+```
+
+## Flushing
+
+In serverless environments, call `flush()` before process exit to ensure all data is transmitted:
+
+```ts
+await raindrop.flush();
+```
+
+For long-running processes, flush on `SIGTERM`.
+
+## Debugging
+
+Enable debug flags in client options to log events, trace batches, and span relationships:
+
+```ts
+const raindrop = createRaindropAISDK({
+  writeKey: process.env.RAINDROP_WRITE_KEY!,
+  traces: { debug: true },
+  events: { debug: true },
+});
+```
+
+## Learn More
+
+- [Raindrop Documentation](https://raindrop.ai/docs)
+- [Trajectories](https://raindrop.ai/docs/platform/trajectories.md): Visualize, search, and debug agent traces
+- [Signals](https://raindrop.ai/docs/platform/signals.md): Define and track domain-specific failure modes
+- [Experiments](https://raindrop.ai/docs/platform/experiments.md): A/B test different agent configurations
+- For more information, see the [telemetry documentation](/docs/ai-sdk-core/telemetry) of the AI SDK.
